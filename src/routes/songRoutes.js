@@ -7,12 +7,17 @@ const {
     getAllSongs,
     getSong,
     updateSong,
-    deleteSong
+    deleteSong,
+    downloadOnly
 } = require('../controllers/songController');
 
 router.post('/download', upload.fields([
     { name: 'cover', maxCount: 1 }
 ]), downloadSong);
+
+router.post('/download-only', upload.fields([
+    { name: 'cover', maxCount: 1 }
+]), downloadOnly);
 
 router.post('/upload', upload.fields([
     { name: 'audio', maxCount: 1 },

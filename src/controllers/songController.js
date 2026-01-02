@@ -473,6 +473,65 @@ async function deleteSong(req, res) {
         });
     }
 }
+async function downloadOnly(req, res) {
+    try {
+        const { youtube_url, title, artist, lyrics } = req.body;
+        const coverFile = req.files?.cover?.[0];
+
+        if (!youtube_url || !title || !artist) {
+            return res.status(400).json({
+                success: false,
+                message: 'youtube_url, title, and artist are required'
+            });
+        }
+
+        const { filePath } = await downloadAudio(youtube_url);
+        const duration = await getAudioDuration(filePath);
+        const { url: audio_url } = await uploadAudio(filePath);
+
+        let finalCoverUrl;
+
+        if (coverFile) {
+            const coverResult = await uploadCover(coverFile.path);
+            finalCoverUrl = coverResult.url;
+        } else {
+            finalCoverUrl = await getThumbnail(youtube_url);
+            if (!finalCoverUrl) {
+                finalCoverUrl = "https://placehold.co/300x300/333/fff?text=No+Cover";
+            }
+        }
+
+        let parsedLyrics = [];
+        if (lyrics) {
+            try {
+                parsedLyrics = typeof lyrics === 'string' ? JSON.parse(lyrics) : lyrics;
+            } catch (e) {
+                throw new Error('Invalid lyrics format. Must be a valid JSON array.');
+            }
+        }
+
+        res.json({
+            success: true,
+            message: 'Audio downloaded successfully',
+            data: {
+                title,
+                artist,
+                audio_url,
+                cover_url: finalCoverUrl,
+                duration,
+                youtube_url,
+                lyrics: parsedLyrics
+            }
+        });
+
+    } catch (error) {
+        console.error('Download only error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to download audio'
+        });
+    }
+}
 
 module.exports = {
     downloadSong,
@@ -480,5 +539,6 @@ module.exports = {
     getAllSongs,
     getSong,
     updateSong,
-    deleteSong
+    deleteSong,
+    downloadOnly
 };
