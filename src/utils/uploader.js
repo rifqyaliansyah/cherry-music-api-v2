@@ -1,51 +1,48 @@
 const cloudinary = require('../config/cloudinary');
-const mm = require('music-metadata');
 
-const uploadAudio = (buffer) =>
-    new Promise((resolve, reject) => {
-        cloudinary.uploader.upload_stream(
+function uploadAudioStream(readableStream) {
+    return new Promise((resolve, reject) => {
+        const upload = cloudinary.uploader.upload_stream(
             {
                 resource_type: 'video',
-                folder: 'music-player/audio'
+                folder: 'music-player/audio',
+                format: 'mp3'
             },
-            async (err, result) => {
-                if (err) return reject(err);
-
-                const metadata = await mm.parseBuffer(buffer);
+            (error, result) => {
+                if (error) return reject(error);
                 resolve({
                     url: result.secure_url,
                     publicId: result.public_id,
-                    duration: Math.round(metadata.format.duration)
+                    duration: Math.round(result.duration)
                 });
             }
-        ).end(buffer);
+        );
+
+        readableStream.pipe(upload);
     });
+}
 
-const uploadCover = (buffer) =>
-    new Promise((resolve, reject) => {
-        cloudinary.uploader.upload_stream(
-            {
-                resource_type: 'image',
-                folder: 'music-player/covers'
-            },
-            (err, result) => {
-                if (err) reject(err);
-                else resolve({
-                    url: result.secure_url,
-                    publicId: result.public_id
-                });
-            }
-        ).end(buffer);
+function uploadCover(buffer) {
+    return cloudinary.uploader.upload(buffer, {
+        resource_type: 'image',
+        folder: 'music-player/covers'
     });
+}
 
-const deleteAudio = (publicId) =>
-    cloudinary.uploader.destroy(publicId, { resource_type: 'video' });
+function deleteAudio(publicId) {
+    return cloudinary.uploader.destroy(publicId, {
+        resource_type: 'video'
+    });
+}
 
-const deleteCover = (publicId) =>
-    cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
+function deleteCover(publicId) {
+    return cloudinary.uploader.destroy(publicId, {
+        resource_type: 'image'
+    });
+}
 
 module.exports = {
-    uploadAudio,
+    uploadAudioStream,
     uploadCover,
     deleteAudio,
     deleteCover

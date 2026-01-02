@@ -1,7 +1,6 @@
 const pool = require('../config/database');
-const { downloadAudio, getThumbnail } = require('../utils/downloader');
-const { uploadAudio, uploadCover, getAudioDuration, deleteAudio, deleteCover } = require('../utils/uploader');
-const fs = require('fs');
+const { getAudioStream, getThumbnail } = require('../utils/downloader');
+const { uploadAudioStream, uploadCover, deleteAudio, deleteCover } = require('../utils/uploader');
 
 async function downloadSong(req, res) {
     const client = await pool.connect();
@@ -17,9 +16,8 @@ async function downloadSong(req, res) {
             });
         }
 
-        const { filePath } = await downloadAudio(youtube_url);
-        const duration = await getAudioDuration(filePath);
-        const { url: audio_url, publicId } = await uploadAudio(filePath);
+        const { stream } = await getAudioStream(youtube_url);
+        const { url: audio_url, publicId, duration } = await uploadAudioStream(stream);
 
         let finalCoverUrl;
 
@@ -112,11 +110,14 @@ async function uploadSong(req, res) {
             });
         }
 
-        const duration = await getAudioDuration(audioFile.buffer);
+        const { Readable } = require('stream');
 
-        const audioResult = await uploadAudio(audioFile.buffer);
+        const audioStream = Readable.from(audioFile.buffer);
+        const audioResult = await uploadAudioStream(audioStream);
+
         uploadedAudioUrl = audioResult.url;
         audioPublicId = audioResult.publicId;
+        const duration = audioResult.duration;
 
         let finalCoverUrl = "https://placehold.co/300x300/333/fff?text=No+Cover";
 
@@ -294,9 +295,9 @@ async function updateSong(req, res) {
         }
 
         if (youtube_url) {
-            const { filePath } = await downloadAudio(youtube_url);
-            const duration = await getAudioDuration(filePath);
-            const audioResult = await uploadAudio(filePath);
+            const { stream } = await getAudioStream(youtube_url);
+            const audioResult = await uploadAudioStream(stream);
+            const duration = audioResult.duration;
             uploadedAudioUrl = audioResult.url;
             audioPublicId = audioResult.publicId;
 
@@ -330,8 +331,12 @@ async function updateSong(req, res) {
             }
         }
         else if (audioFile) {
-            const duration = await getAudioDuration(audioFile.buffer);
-            const audioResult = await uploadAudio(audioFile.buffer);
+            const { Readable } = require('stream');
+
+            const audioStream = Readable.from(audioFile.buffer);
+            const audioResult = await uploadAudioStream(audioStream);
+
+            const duration = audioResult.duration;
             uploadedAudioUrl = audioResult.url;
             audioPublicId = audioResult.publicId;
 
@@ -485,9 +490,8 @@ async function downloadOnly(req, res) {
             });
         }
 
-        const { filePath } = await downloadAudio(youtube_url);
-        const duration = await getAudioDuration(filePath);
-        const { url: audio_url } = await uploadAudio(filePath);
+        const { stream } = await getAudioStream(youtube_url);
+        const { url: audio_url, duration } = await uploadAudioStream(stream);
 
         let finalCoverUrl;
 
