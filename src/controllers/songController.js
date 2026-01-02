@@ -8,7 +8,8 @@ async function downloadSong(req, res) {
     const client = await pool.connect();
 
     try {
-        const { youtube_url, title, artist, cover_url, lyrics } = req.body;
+        const { youtube_url, title, artist, lyrics } = req.body;
+        const coverFile = req.files?.cover?.[0];
 
         if (!youtube_url || !title || !artist) {
             return res.status(400).json({
@@ -21,12 +22,16 @@ async function downloadSong(req, res) {
         const duration = await getAudioDuration(filePath);
         const { url: audio_url, publicId } = await uploadAudio(filePath);
 
-        let finalCoverUrl = cover_url;
-        if (!finalCoverUrl) {
+        let finalCoverUrl;
+
+        if (coverFile) {
+            const coverResult = await uploadCover(coverFile.path);
+            finalCoverUrl = coverResult.url;
+        } else {
             finalCoverUrl = await getThumbnail(youtube_url);
-        }
-        if (!finalCoverUrl) {
-            finalCoverUrl = "https://placehold.co/300x300/333/fff?text=No+Cover";
+            if (!finalCoverUrl) {
+                finalCoverUrl = "https://placehold.co/300x300/333/fff?text=No+Cover";
+            }
         }
 
         await client.query('BEGIN');
@@ -40,15 +45,24 @@ async function downloadSong(req, res) {
 
         const song = songResult.rows[0];
 
-        if (lyrics && Array.isArray(lyrics) && lyrics.length > 0) {
-            const lyricValues = lyrics.map((lyric, index) =>
-                `(${song.id}, ${lyric.time}, '${lyric.text.replace(/'/g, "''")}', ${index})`
-            ).join(',');
+        if (lyrics) {
+            let parsedLyrics;
+            try {
+                parsedLyrics = typeof lyrics === 'string' ? JSON.parse(lyrics) : lyrics;
+            } catch (e) {
+                throw new Error('Invalid lyrics format. Must be a valid JSON array.');
+            }
 
-            await client.query(
-                `INSERT INTO lyrics (song_id, timestamp, text, line_order)
-                 VALUES ${lyricValues}`
-            );
+            if (Array.isArray(parsedLyrics) && parsedLyrics.length > 0) {
+                const lyricValues = parsedLyrics.map((lyric, index) =>
+                    `(${song.id}, ${lyric.time}, '${lyric.text.replace(/'/g, "''")}', ${index})`
+                ).join(',');
+
+                await client.query(
+                    `INSERT INTO lyrics (song_id, timestamp, text, line_order)
+                     VALUES ${lyricValues}`
+                );
+            }
         }
 
         await client.query('COMMIT');
@@ -73,7 +87,6 @@ async function downloadSong(req, res) {
     }
 }
 
-// Upload from local files
 async function uploadSong(req, res) {
     const client = await pool.connect();
     let uploadedAudioUrl = null;
@@ -86,7 +99,6 @@ async function uploadSong(req, res) {
         const audioFile = req.files?.audio?.[0];
         const coverFile = req.files?.cover?.[0];
 
-        // Validation
         if (!title || !artist) {
             return res.status(400).json({
                 success: false,
@@ -101,15 +113,12 @@ async function uploadSong(req, res) {
             });
         }
 
-        // Get audio duration
         const duration = await getAudioDuration(audioFile.path);
 
-        // Upload audio to Cloudinary
         const audioResult = await uploadAudio(audioFile.path);
         uploadedAudioUrl = audioResult.url;
         audioPublicId = audioResult.publicId;
 
-        // Upload cover if provided, otherwise use placeholder
         let finalCoverUrl = "https://placehold.co/300x300/333/fff?text=No+Cover";
 
         if (coverFile) {
@@ -120,7 +129,6 @@ async function uploadSong(req, res) {
 
         await client.query('BEGIN');
 
-        // Insert song
         const songResult = await client.query(
             `INSERT INTO songs (title, artist, cover_url, audio_url, duration)
              VALUES ($1, $2, $3, $4, $5)
@@ -130,7 +138,6 @@ async function uploadSong(req, res) {
 
         const song = songResult.rows[0];
 
-        // Insert lyrics if provided
         if (lyrics) {
             let parsedLyrics;
             try {
@@ -164,7 +171,6 @@ async function uploadSong(req, res) {
     } catch (error) {
         await client.query('ROLLBACK');
 
-        // Cleanup uploaded files if error occurs
         if (audioPublicId) {
             await deleteAudio(audioPublicId);
         }
@@ -251,10 +257,26 @@ async function getSong(req, res) {
 
 async function updateSong(req, res) {
     const client = await pool.connect();
+    let uploadedAudioUrl = null;
+    let uploadedCoverUrl = null;
+    let audioPublicId = null;
+    let coverPublicId = null;
+    let oldAudioPublicId = null;
+    let oldCoverPublicId = null;
 
     try {
         const { id } = req.params;
-        const { title, artist, cover_url, lyrics } = req.body;
+        const { title, artist, lyrics } = req.body;
+        const audioFile = req.files?.audio?.[0];
+        const coverFile = req.files?.cover?.[0];
+
+        const existingSong = await getSongById(id);
+        if (!existingSong) {
+            return res.status(404).json({
+                success: false,
+                message: 'Song not found'
+            });
+        }
 
         await client.query('BEGIN');
 
@@ -266,13 +288,44 @@ async function updateSong(req, res) {
             updateFields.push(`title = $${paramIndex++}`);
             values.push(title);
         }
+
         if (artist) {
             updateFields.push(`artist = $${paramIndex++}`);
             values.push(artist);
         }
-        if (cover_url) {
+
+        if (audioFile) {
+            const duration = await getAudioDuration(audioFile.path);
+            const audioResult = await uploadAudio(audioFile.path);
+            uploadedAudioUrl = audioResult.url;
+            audioPublicId = audioResult.publicId;
+
+            updateFields.push(`audio_url = $${paramIndex++}`);
+            values.push(uploadedAudioUrl);
+
+            updateFields.push(`duration = $${paramIndex++}`);
+            values.push(duration);
+
+            if (existingSong.audio_url) {
+                const audioUrlParts = existingSong.audio_url.split('/');
+                const audioPublicIdWithExt = audioUrlParts.slice(-2).join('/');
+                oldAudioPublicId = audioPublicIdWithExt.replace(/\.(mp3|wav|m4a|ogg)$/, '');
+            }
+        }
+
+        if (coverFile) {
+            const coverResult = await uploadCover(coverFile.path);
+            uploadedCoverUrl = coverResult.url;
+            coverPublicId = coverResult.publicId;
+
             updateFields.push(`cover_url = $${paramIndex++}`);
-            values.push(cover_url);
+            values.push(uploadedCoverUrl);
+
+            if (existingSong.cover_url && !existingSong.cover_url.includes('placehold.co')) {
+                const coverUrlParts = existingSong.cover_url.split('/');
+                const coverPublicIdWithExt = coverUrlParts.slice(-2).join('/');
+                oldCoverPublicId = coverPublicIdWithExt.split('.')[0];
+            }
         }
 
         if (updateFields.length > 0) {
@@ -283,11 +336,18 @@ async function updateSong(req, res) {
             );
         }
 
-        if (lyrics && Array.isArray(lyrics)) {
+        if (lyrics) {
+            let parsedLyrics;
+            try {
+                parsedLyrics = typeof lyrics === 'string' ? JSON.parse(lyrics) : lyrics;
+            } catch (e) {
+                throw new Error('Invalid lyrics format. Must be a valid JSON array.');
+            }
+
             await client.query('DELETE FROM lyrics WHERE song_id = $1', [id]);
 
-            if (lyrics.length > 0) {
-                const lyricValues = lyrics.map((lyric, index) =>
+            if (Array.isArray(parsedLyrics) && parsedLyrics.length > 0) {
+                const lyricValues = parsedLyrics.map((lyric, index) =>
                     `(${id}, ${lyric.time}, '${lyric.text.replace(/'/g, "''")}', ${index})`
                 ).join(',');
 
@@ -300,6 +360,13 @@ async function updateSong(req, res) {
 
         await client.query('COMMIT');
 
+        if (oldAudioPublicId) {
+            await deleteAudio(oldAudioPublicId);
+        }
+        if (oldCoverPublicId) {
+            await deleteCover(oldCoverPublicId);
+        }
+
         const updatedSong = await getSongById(id);
 
         res.json({
@@ -310,10 +377,19 @@ async function updateSong(req, res) {
 
     } catch (error) {
         await client.query('ROLLBACK');
+
+
+        if (audioPublicId) {
+            await deleteAudio(audioPublicId);
+        }
+        if (coverPublicId) {
+            await deleteCover(coverPublicId);
+        }
+
         console.error('Update error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to update song'
+            message: error.message || 'Failed to update song'
         });
     } finally {
         client.release();
@@ -333,13 +409,11 @@ async function deleteSong(req, res) {
             });
         }
 
-        // Delete audio from Cloudinary
         const audioUrlParts = song.audio_url.split('/');
         const audioPublicIdWithExt = audioUrlParts.slice(-2).join('/');
         const audioPublicId = audioPublicIdWithExt.replace('.mp3', '');
         await deleteAudio(audioPublicId);
 
-        // Delete cover from Cloudinary if not placeholder
         if (song.cover_url && !song.cover_url.includes('placehold.co')) {
             const coverUrlParts = song.cover_url.split('/');
             const coverPublicIdWithExt = coverUrlParts.slice(-2).join('/');
