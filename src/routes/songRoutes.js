@@ -10,7 +10,9 @@ const {
     deleteSong
 } = require('../controllers/songController');
 
-router.post('/download', downloadSong);
+router.post('/download', upload.fields([
+    { name: 'cover', maxCount: 1 }
+]), downloadSong);
 
 router.post('/upload', upload.fields([
     { name: 'audio', maxCount: 1 },
@@ -20,7 +22,12 @@ router.post('/upload', upload.fields([
 
 router.get('/', getAllSongs);
 router.get('/:id', getSong);
-router.put('/:id', updateSong);
+
+router.put('/:id', upload.fields([
+    { name: 'audio', maxCount: 1 },
+    { name: 'cover', maxCount: 1 }
+]), updateSong);
+
 router.delete('/:id', deleteSong);
 
 module.exports = router;
