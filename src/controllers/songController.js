@@ -24,7 +24,7 @@ async function downloadSong(req, res) {
         let finalCoverUrl;
 
         if (coverFile) {
-            const coverResult = await uploadCover(coverFile.path);
+            const coverResult = await uploadCover(coverFile.buffer);
             finalCoverUrl = coverResult.url;
         } else {
             finalCoverUrl = await getThumbnail(youtube_url);
@@ -112,16 +112,16 @@ async function uploadSong(req, res) {
             });
         }
 
-        const duration = await getAudioDuration(audioFile.path);
+        const duration = await getAudioDuration(audioFile.buffer);
 
-        const audioResult = await uploadAudio(audioFile.path);
+        const audioResult = await uploadAudio(audioFile.buffer);
         uploadedAudioUrl = audioResult.url;
         audioPublicId = audioResult.publicId;
 
         let finalCoverUrl = "https://placehold.co/300x300/333/fff?text=No+Cover";
 
         if (coverFile) {
-            const coverResult = await uploadCover(coverFile.path);
+            const coverResult = await uploadCover(coverFile.buffer);
             finalCoverUrl = coverResult.url;
             coverPublicId = coverResult.publicId;
         }
@@ -330,8 +330,8 @@ async function updateSong(req, res) {
             }
         }
         else if (audioFile) {
-            const duration = await getAudioDuration(audioFile.path);
-            const audioResult = await uploadAudio(audioFile.path);
+            const duration = await getAudioDuration(audioFile.buffer);
+            const audioResult = await uploadAudio(audioFile.buffer);
             uploadedAudioUrl = audioResult.url;
             audioPublicId = audioResult.publicId;
 
@@ -352,7 +352,7 @@ async function updateSong(req, res) {
         }
 
         if (coverFile) {
-            const coverResult = await uploadCover(coverFile.path);
+            const coverResult = await uploadCover(coverFile.buffer);
             uploadedCoverUrl = coverResult.url;
             coverPublicId = coverResult.publicId;
 
@@ -492,7 +492,7 @@ async function downloadOnly(req, res) {
         let finalCoverUrl;
 
         if (coverFile) {
-            const coverResult = await uploadCover(coverFile.path);
+            const coverResult = await uploadCover(coverFile.buffer);
             finalCoverUrl = coverResult.url;
         } else {
             finalCoverUrl = await getThumbnail(youtube_url);
