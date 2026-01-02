@@ -1,4 +1,5 @@
 const cloudinary = require('../config/cloudinary');
+const { Readable } = require('stream');
 
 function uploadAudioStream(readableStream) {
     return new Promise((resolve, reject) => {
@@ -23,9 +24,22 @@ function uploadAudioStream(readableStream) {
 }
 
 function uploadCover(buffer) {
-    return cloudinary.uploader.upload(buffer, {
-        resource_type: 'image',
-        folder: 'music-player/covers'
+    return new Promise((resolve, reject) => {
+        const upload = cloudinary.uploader.upload_stream(
+            {
+                resource_type: 'image',
+                folder: 'music-player/covers'
+            },
+            (error, result) => {
+                if (error) return reject(error);
+                resolve({
+                    url: result.secure_url,
+                    publicId: result.public_id
+                });
+            }
+        );
+
+        Readable.from(buffer).pipe(upload);
     });
 }
 
