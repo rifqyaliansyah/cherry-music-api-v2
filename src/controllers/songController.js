@@ -3,7 +3,6 @@ const { downloadAudio, getThumbnail } = require('../utils/downloader');
 const { uploadAudio, uploadCover, getAudioDuration, deleteAudio, deleteCover } = require('../utils/uploader');
 const fs = require('fs');
 
-// Download from YouTube
 async function downloadSong(req, res) {
     const client = await pool.connect();
 
@@ -266,7 +265,7 @@ async function updateSong(req, res) {
 
     try {
         const { id } = req.params;
-        const { title, artist, lyrics } = req.body;
+        const { title, artist, lyrics, youtube_url } = req.body;
         const audioFile = req.files?.audio?.[0];
         const coverFile = req.files?.cover?.[0];
 
@@ -294,7 +293,43 @@ async function updateSong(req, res) {
             values.push(artist);
         }
 
-        if (audioFile) {
+        if (youtube_url) {
+            const { filePath } = await downloadAudio(youtube_url);
+            const duration = await getAudioDuration(filePath);
+            const audioResult = await uploadAudio(filePath);
+            uploadedAudioUrl = audioResult.url;
+            audioPublicId = audioResult.publicId;
+
+            updateFields.push(`audio_url = $${paramIndex++}`);
+            values.push(uploadedAudioUrl);
+
+            updateFields.push(`duration = $${paramIndex++}`);
+            values.push(duration);
+
+            updateFields.push(`youtube_url = $${paramIndex++}`);
+            values.push(youtube_url);
+
+            if (existingSong.audio_url) {
+                const audioUrlParts = existingSong.audio_url.split('/');
+                const audioPublicIdWithExt = audioUrlParts.slice(-2).join('/');
+                oldAudioPublicId = audioPublicIdWithExt.replace(/\.(mp3|wav|m4a|ogg)$/, '');
+            }
+
+            if (!coverFile) {
+                const thumbnailUrl = await getThumbnail(youtube_url);
+                if (thumbnailUrl) {
+                    updateFields.push(`cover_url = $${paramIndex++}`);
+                    values.push(thumbnailUrl);
+
+                    if (existingSong.cover_url && !existingSong.cover_url.includes('placehold.co') && !existingSong.cover_url.includes('ytimg.com')) {
+                        const coverUrlParts = existingSong.cover_url.split('/');
+                        const coverPublicIdWithExt = coverUrlParts.slice(-2).join('/');
+                        oldCoverPublicId = coverPublicIdWithExt.split('.')[0];
+                    }
+                }
+            }
+        }
+        else if (audioFile) {
             const duration = await getAudioDuration(audioFile.path);
             const audioResult = await uploadAudio(audioFile.path);
             uploadedAudioUrl = audioResult.url;
@@ -305,6 +340,9 @@ async function updateSong(req, res) {
 
             updateFields.push(`duration = $${paramIndex++}`);
             values.push(duration);
+
+            updateFields.push(`youtube_url = $${paramIndex++}`);
+            values.push(null);
 
             if (existingSong.audio_url) {
                 const audioUrlParts = existingSong.audio_url.split('/');
@@ -321,7 +359,7 @@ async function updateSong(req, res) {
             updateFields.push(`cover_url = $${paramIndex++}`);
             values.push(uploadedCoverUrl);
 
-            if (existingSong.cover_url && !existingSong.cover_url.includes('placehold.co')) {
+            if (existingSong.cover_url && !existingSong.cover_url.includes('placehold.co') && !existingSong.cover_url.includes('ytimg.com')) {
                 const coverUrlParts = existingSong.cover_url.split('/');
                 const coverPublicIdWithExt = coverUrlParts.slice(-2).join('/');
                 oldCoverPublicId = coverPublicIdWithExt.split('.')[0];
@@ -336,7 +374,7 @@ async function updateSong(req, res) {
             );
         }
 
-        if (lyrics) {
+        if (lyrics !== undefined) {
             let parsedLyrics;
             try {
                 parsedLyrics = typeof lyrics === 'string' ? JSON.parse(lyrics) : lyrics;
@@ -378,7 +416,6 @@ async function updateSong(req, res) {
     } catch (error) {
         await client.query('ROLLBACK');
 
-
         if (audioPublicId) {
             await deleteAudio(audioPublicId);
         }
@@ -411,10 +448,10 @@ async function deleteSong(req, res) {
 
         const audioUrlParts = song.audio_url.split('/');
         const audioPublicIdWithExt = audioUrlParts.slice(-2).join('/');
-        const audioPublicId = audioPublicIdWithExt.replace('.mp3', '');
+        const audioPublicId = audioPublicIdWithExt.replace(/\.(mp3|wav|m4a|ogg)$/, '');
         await deleteAudio(audioPublicId);
 
-        if (song.cover_url && !song.cover_url.includes('placehold.co')) {
+        if (song.cover_url && !song.cover_url.includes('placehold.co') && !song.cover_url.includes('ytimg.com')) {
             const coverUrlParts = song.cover_url.split('/');
             const coverPublicIdWithExt = coverUrlParts.slice(-2).join('/');
             const coverPublicId = coverPublicIdWithExt.split('.')[0];
